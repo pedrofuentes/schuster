@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Árbol Genealógico Schuster</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #faf8f5;
+      --surface: #ffffff;
+      --border: #e0d9d0;
+      --primary: #5a3e28;
+      --accent: #8b5e3c;
+      --accent-light: #c8956c;
+      --text: #2c1a0e;
+      --text-muted: #7a6452;
+      --highlight: #fff3cd;
+      --highlight-border: #e6b800;
+      --connector: #c8b89a;
+      --node-bg: #fff9f4;
+      --node-hover: #fff0e6;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--primary);
+      color: #f5ece0;
+      padding: 18px 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 8px rgba(0,0,0,.3);
+    }
+    header h1 { font-size: 1.3rem; font-weight: 700; flex: 1; min-width: 180px; }
+    header h1 small { display: block; font-size: .75rem; font-weight: 400; opacity: .75; margin-top: 2px; }
+
+    .search-wrap { position: relative; flex: 0 1 320px; }
+    .search-wrap input {
+      width: 100%;
+      padding: 8px 36px 8px 12px;
+      border-radius: 6px;
+      border: none;
+      font-size: .9rem;
+      background: rgba(255,255,255,.15);
+      color: #f5ece0;
+      outline: none;
+    }
+    .search-wrap input::placeholder { color: rgba(245,236,224,.55); }
+    .search-wrap input:focus { background: rgba(255,255,255,.25); }
+    .search-wrap .clear-btn {
+      position: absolute;
+      right: 8px; top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      color: rgba(245,236,224,.7);
+      cursor: pointer;
+      font-size: 1rem;
+      line-height: 1;
+      display: none;
+    }
+    .search-wrap input:not(:placeholder-shown) + .clear-btn { display: block; }
+
+    .controls {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .controls button {
+      padding: 6px 12px;
+      border-radius: 5px;
+      border: 1px solid rgba(255,255,255,.3);
+      background: rgba(255,255,255,.12);
+      color: #f5ece0;
+      font-size: .8rem;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .controls button:hover { background: rgba(255,255,255,.25); }
+
+    /* ── Tabs ── */
+    .tabs {
+      display: flex;
+      gap: 4px;
+      padding: 12px 20px 0;
+      border-bottom: 2px solid var(--border);
+      background: var(--surface);
+    }
+    .tab-btn {
+      padding: 8px 18px;
+      border: 1px solid var(--border);
+      border-bottom: none;
+      border-radius: 6px 6px 0 0;
+      background: var(--bg);
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: .88rem;
+      font-weight: 500;
+      transition: background .15s;
+    }
+    .tab-btn.active {
+      background: var(--surface);
+      color: var(--primary);
+      border-color: var(--border);
+      margin-bottom: -2px;
+      border-bottom: 2px solid var(--surface);
+    }
+    .tab-btn:hover:not(.active) { background: #f0ebe4; }
+
+    /* ── Stats bar ── */
+    .stats-bar {
+      padding: 8px 22px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      font-size: .8rem;
+      color: var(--text-muted);
+    }
+    .stats-bar span { margin-right: 16px; }
+    .stats-bar strong { color: var(--text); }
+
+    /* ── Tree container ── */
+    .tree-panel {
+      padding: 20px 16px 40px;
+      display: none;
+    }
+    .tree-panel.active { display: block; }
+
+    /* ── Tree nodes ── */
+    ul.tree { list-style: none; padding-left: 0; }
+    ul.tree ul { padding-left: 24px; position: relative; }
+    ul.tree ul::before {
+      content: '';
+      position: absolute;
+      left: 8px;
+      top: 0; bottom: 12px;
+      border-left: 2px solid var(--connector);
+    }
+    ul.tree li { position: relative; margin: 3px 0; }
+    ul.tree ul > li::before {
+      content: '';
+      position: absolute;
+      left: -16px;
+      top: 17px;
+      width: 16px;
+      height: 2px;
+      background: var(--connector);
+    }
+
+    .node-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+      cursor: pointer;
+      border-radius: 6px;
+      padding: 5px 8px;
+      transition: background .12s;
+    }
+    .node-row:hover { background: var(--node-hover); }
+    .node-row.has-children .toggle-icon { cursor: pointer; }
+
+    .toggle-icon {
+      flex-shrink: 0;
+      width: 18px;
+      height: 18px;
+      margin-top: 2px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 3px;
+      font-size: .7rem;
+      color: var(--accent);
+      font-weight: bold;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      user-select: none;
+    }
+    .toggle-icon.leaf {
+      border-color: transparent;
+      background: transparent;
+      color: var(--connector);
+    }
+
+    .node-content { flex: 1; min-width: 0; }
+    .node-name {
+      font-weight: 600;
+      font-size: .9rem;
+      color: var(--text);
+      word-break: break-word;
+    }
+    .node-name mark {
+      background: var(--highlight);
+      outline: 1px solid var(--highlight-border);
+      border-radius: 2px;
+    }
+    .node-id {
+      font-size: .72rem;
+      color: var(--text-muted);
+      margin-right: 5px;
+    }
+    .node-meta {
+      font-size: .78rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+      line-height: 1.45;
+    }
+    .node-meta .dates { color: var(--accent); }
+    .node-meta .spouse::before { content: '♥ '; }
+
+    .node-row.highlight {
+      background: var(--highlight);
+      outline: 1px solid var(--highlight-border);
+    }
+
+    /* collapsed */
+    .children-wrap { display: block; }
+    .children-wrap.collapsed { display: none; }
+
+    /* search results panel */
+    #search-results {
+      display: none;
+      padding: 16px 20px 40px;
+    }
+    #search-results.active { display: block; }
+    #search-results h2 { font-size: 1rem; color: var(--text-muted); margin-bottom: 12px; }
+    .result-item {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 14px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: background .12s;
+    }
+    .result-item:hover { background: var(--node-hover); }
+    .result-item .r-name { font-weight: 600; font-size: .9rem; }
+    .result-item .r-meta { font-size: .78rem; color: var(--text-muted); margin-top: 3px; }
+    .result-item .r-section { font-size: .72rem; color: var(--accent-light); }
+
+    @media (max-width: 600px) {
+      header { padding: 12px 14px; }
+      .tabs { padding: 10px 12px 0; }
+      .tab-btn { padding: 6px 12px; font-size: .8rem; }
+      ul.tree ul { padding-left: 16px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>🌳 Árbol Genealógico Schuster
+    <small>Familias Schuster de Chile — Valdivia &amp; Concepción</small>
+  </h1>
+  <div class="search-wrap">
+    <input type="search" id="search-input" placeholder="Buscar persona…" autocomplete="off" />
+    <button class="clear-btn" onclick="clearSearch()" title="Limpiar">✕</button>
+  </div>
+  <div class="controls">
+    <button onclick="expandAll()">Expandir todo</button>
+    <button onclick="collapseAll()">Colapsar todo</button>
+  </div>
+</header>
+
+<div class="tabs" id="tabs"></div>
+<div class="stats-bar" id="stats-bar"></div>
+
+<div id="search-results"><h2 id="search-title"></h2><div id="search-list"></div></div>
+
+<div id="panels"></div>
+
+<script>
+// ── Data is loaded from data.json ──
+let TREE_DATA = null;
+
+// ── Build UI ──
+function buildUI(data) {
+  TREE_DATA = data;
+  const tabsEl = document.getElementById('tabs');
+  const panelsEl = document.getElementById('panels');
+  const statsEl = document.getElementById('stats-bar');
+
+  let totalAll = 0;
+  data.forEach((section, idx) => {
+    const total = countNodes(section.roots);
+    totalAll += total;
+
+    // Tab
+    const btn = document.createElement('button');
+    btn.className = 'tab-btn' + (idx === 0 ? ' active' : '');
+    btn.textContent = section.section;
+    btn.dataset.idx = idx;
+    btn.addEventListener('click', () => switchTab(idx));
+    tabsEl.appendChild(btn);
+
+    // Panel
+    const panel = document.createElement('div');
+    panel.className = 'tree-panel' + (idx === 0 ? ' active' : '');
+    panel.id = 'panel-' + idx;
+    panel.dataset.section = section.section;
+    panel.dataset.total = total;
+
+    const ul = buildTree(section.roots);
+    panel.appendChild(ul);
+    panelsEl.appendChild(panel);
+  });
+
+  statsEl.innerHTML = `<span>Secciones: <strong>${data.length}</strong></span>` +
+    `<span>Personas: <strong>${totalAll}</strong></span>` +
+    `<span><em>Haga clic en un nombre para expandir / colapsar</em></span>`;
+}
+
+function countNodes(nodes) {
+  let c = nodes.length;
+  nodes.forEach(n => { c += countNodes(n.children || []); });
+  return c;
+}
+
+function buildTree(nodes) {
+  const ul = document.createElement('ul');
+  ul.className = 'tree';
+  nodes.forEach(node => ul.appendChild(buildNode(node)));
+  return ul;
+}
+
+function buildNode(node) {
+  const li = document.createElement('li');
+  li.dataset.id = node.id;
+  li.dataset.name = node.name || '';
+
+  const hasChildren = node.children && node.children.length > 0;
+
+  const row = document.createElement('div');
+  row.className = 'node-row' + (hasChildren ? ' has-children' : '');
+
+  // Toggle icon
+  const icon = document.createElement('div');
+  icon.className = hasChildren ? 'toggle-icon' : 'toggle-icon leaf';
+  icon.textContent = hasChildren ? '▶' : '•';
+  row.appendChild(icon);
+
+  // Content
+  const content = document.createElement('div');
+  content.className = 'node-content';
+
+  const nameEl = document.createElement('div');
+  nameEl.className = 'node-name';
+  nameEl.innerHTML = `<span class="node-id">${node.id}</span>${escHtml(node.name || '(sin nombre)')}`;
+  content.appendChild(nameEl);
+
+  if (node.birth_death || (node.spouses && node.spouses.length)) {
+    const meta = document.createElement('div');
+    meta.className = 'node-meta';
+    let parts = [];
+    if (node.birth_death) parts.push(`<span class="dates">${escHtml(node.birth_death)}</span>`);
+    if (node.spouses && node.spouses.length) {
+      node.spouses.forEach(s => {
+        parts.push(`<span class="spouse">${escHtml(s)}</span>`);
+      });
+    }
+    meta.innerHTML = parts.join(' &nbsp;·&nbsp; ');
+    content.appendChild(meta);
+  }
+
+  row.appendChild(content);
+  li.appendChild(row);
+
+  // Children
+  if (hasChildren) {
+    const wrap = document.createElement('div');
+    wrap.className = 'children-wrap collapsed';
+    wrap.appendChild(buildTree(node.children));
+    li.appendChild(wrap);
+
+    row.addEventListener('click', () => {
+      const collapsed = wrap.classList.toggle('collapsed');
+      icon.textContent = collapsed ? '▶' : '▼';
+    });
+  }
+
+  return li;
+}
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+
+// ── Tab switching ──
+function switchTab(idx) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tree-panel').forEach(p => p.classList.remove('active'));
+  document.querySelector(`.tab-btn[data-idx="${idx}"]`).classList.add('active');
+  document.getElementById('panel-' + idx).classList.add('active');
+  document.getElementById('search-results').classList.remove('active');
+}
+
+// ── Expand / Collapse ──
+function expandAll() {
+  activePanel().querySelectorAll('.children-wrap').forEach(w => {
+    w.classList.remove('collapsed');
+    const icon = w.previousElementSibling.querySelector('.toggle-icon');
+    if (icon) icon.textContent = '▼';
+  });
+}
+
+function collapseAll() {
+  activePanel().querySelectorAll('.children-wrap').forEach(w => {
+    w.classList.add('collapsed');
+    const icon = w.previousElementSibling.querySelector('.toggle-icon');
+    if (icon) icon.textContent = '▶';
+  });
+}
+
+function activePanel() {
+  return document.querySelector('.tree-panel.active') || document.getElementById('panel-0');
+}
+
+// ── Search ──
+let searchTimer = null;
+document.getElementById('search-input').addEventListener('input', function() {
+  clearTimeout(searchTimer);
+  const q = this.value.trim();
+  if (!q) { clearSearch(); return; }
+  searchTimer = setTimeout(() => doSearch(q), 200);
+});
+
+function clearSearch() {
+  document.getElementById('search-input').value = '';
+  document.getElementById('search-results').classList.remove('active');
+  document.querySelectorAll('.tree-panel').forEach(p => p.style.display = '');
+  // re-activate current tab
+  const active = document.querySelector('.tab-btn.active');
+  if (active) {
+    const panel = document.getElementById('panel-' + active.dataset.idx);
+    if (panel) panel.classList.add('active');
+  }
+}
+
+function doSearch(q) {
+  const qLow = q.toLowerCase();
+  const results = [];
+  TREE_DATA.forEach(section => {
+    searchNodes(section.roots, qLow, section.section, results);
+  });
+
+  // Hide tree panels, show results
+  document.querySelectorAll('.tree-panel').forEach(p => p.classList.remove('active'));
+  const resEl = document.getElementById('search-results');
+  const titleEl = document.getElementById('search-title');
+  const listEl = document.getElementById('search-list');
+
+  titleEl.textContent = results.length
+    ? `${results.length} resultado${results.length !== 1 ? 's' : ''} para "${q}"`
+    : `Sin resultados para "${q}"`;
+
+  listEl.innerHTML = '';
+  results.slice(0, 200).forEach(r => {
+    const item = document.createElement('div');
+    item.className = 'result-item';
+    item.innerHTML = `
+      <div class="r-section">${escHtml(r.section)}</div>
+      <div class="r-name">${highlight(escHtml(r.node.name || ''), q)}</div>
+      <div class="r-meta">
+        ${r.node.birth_death ? `<span>${escHtml(r.node.birth_death)}</span>` : ''}
+        ${r.node.spouses && r.node.spouses.length ? r.node.spouses.map(s => `<span>♥ ${escHtml(s)}</span>`).join(' ') : ''}
+      </div>`;
+    listEl.appendChild(item);
+  });
+
+  resEl.classList.add('active');
+}
+
+function highlight(text, q) {
+  if (!q) return text;
+  // q is already escaped above; re-escape for regex
+  const re = new RegExp('(' + escRegex(q) + ')', 'gi');
+  return text.replace(re, '<mark>$1</mark>');
+}
+function escRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+function searchNodes(nodes, qLow, section, results) {
+  nodes.forEach(node => {
+    const haystack = [
+      node.name,
+      node.birth_death,
+      ...(node.spouses || []),
+      ...(node.notes || [])
+    ].filter(Boolean).join(' ').toLowerCase();
+    if (haystack.includes(qLow)) results.push({ section, node });
+    searchNodes(node.children || [], qLow, section, results);
+  });
+}
+
+// ── Load data ──
+fetch('data.json')
+  .then(r => r.json())
+  .then(data => buildUI(data))
+  .catch(err => {
+    document.getElementById('panels').innerHTML =
+      `<p style="padding:20px;color:red">Error al cargar data.json: ${err.message}</p>`;
+  });
+</script>
+</body>
+</html>
