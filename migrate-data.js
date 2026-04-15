@@ -180,17 +180,20 @@ function extractSpouseInfo(fullText, spouseNames) {
     // Parse dates if available
     let birth = null;
     let death = null;
+    let hasDates = false;
     
     if (datesStr) {
       const parsed = parseBirthDeath(datesStr);
       birth = parsed.birth;
       death = parsed.death;
-      if (birth || death) spousesWithDates++;
+      hasDates = !!(birth || death);
     }
     
     // Generate unique ID for spouse
     const spouseId = `S${spouseIdCounter++}`;
     spousesExtracted++;
+    // Count spouses with dates after duplicate check
+    if (hasDates) spousesWithDates++;
     
     // Determine spouse gender (opposite of the person who is "casado/casada")
     let spouseGender = null;
