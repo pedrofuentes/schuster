@@ -184,6 +184,11 @@
       font-style: italic;
     }
 
+    .node text.node-spouse {
+      font-size: 9px;
+      fill: var(--accent);
+    }
+
     .node text.highlight {
       font-weight: bold;
       fill: var(--primary);
@@ -206,6 +211,7 @@
       fill: none;
       stroke: var(--connector);
       stroke-width: 1.5px;
+      stroke-linejoin: round;
     }
 
     /* ── Tooltip ── */
@@ -379,8 +385,8 @@ let trees = [];
 let currentZoom = null;
 
 // ── Constants ──
-const NODE_HORIZONTAL_SPACING = 180;
-const NODE_VERTICAL_SPACING = 120;
+const NODE_HORIZONTAL_SPACING = 240;
+const NODE_VERTICAL_SPACING = 160;
 const ZOOM_SCALE_FACTOR = 1.3;
 const ZOOM_DURATION = 300;
 const ANIMATION_DURATION = 300;
@@ -566,6 +572,25 @@ function convertToD3Format(node) {
   return d3Node;
 }
 
+// ── Get spouse display names for a node ──
+function getSpouseNames(d) {
+  const names = [];
+  // Prefer enhanced spouse records with full data
+  if (d.data.spouseRecords && d.data.spouseRecords.length > 0) {
+    d.data.spouseRecords.forEach(spouse => {
+      names.push(cleanName(spouse.name));
+    });
+  } else if (d.data.spouses && d.data.spouses.length > 0) {
+    d.data.spouses.forEach(s => names.push(s));
+  }
+  return names;
+}
+
+function hasSpouse(nodeData) {
+  return (nodeData.spouseRecords && nodeData.spouseRecords.length > 0) ||
+         (nodeData.spouses && nodeData.spouses.length > 0);
+}
+
 function updateTree(panelIndex) {
   const tree = trees[panelIndex];
   if (!tree) return;
@@ -577,7 +602,11 @@ function updateTree(panelIndex) {
   // Create tree layout - vertical orientation
   const treeLayout = d3.tree()
     .nodeSize([NODE_HORIZONTAL_SPACING, NODE_VERTICAL_SPACING])
-    .separation((a, b) => (a.parent === b.parent ? 1 : 1.2));
+    .separation((a, b) => {
+      // Give more space when nodes have spouses displayed
+      const base = a.parent === b.parent ? 1 : 1.2;
+      return (hasSpouse(a.data) || hasSpouse(b.data)) ? base * 1.1 : base;
+    });
 
   // Apply layout
   const treeData = treeLayout(root);
@@ -678,6 +707,20 @@ function updateTree(panelIndex) {
     .attr('text-anchor', 'middle')
     .text(d => formatYearRange(d));
 
+  // Add spouse name(s) below dates so both parents are visible in the tree
+  nodeEnter.each(function(d) {
+    const spouseNames = getSpouseNames(d);
+    if (spouseNames.length > 0) {
+      spouseNames.forEach((name, i) => {
+        d3.select(this).append('text')
+          .attr('class', 'node-spouse')
+          .attr('dy', 36 + i * 12)
+          .attr('text-anchor', 'middle')
+          .text('♥ ' + truncateName(name, 22));
+      });
+    }
+  });
+
   // Update + Enter
   const nodeUpdate = nodeEnter.merge(node);
 
@@ -701,10 +744,12 @@ function updateTree(panelIndex) {
 }
 
 function diagonal(s, d) {
+  // Elbow/step connector: vertical down, horizontal across, vertical down
+  const midY = (s.y + d.y) / 2;
   return `M ${s.x} ${s.y}
-          C ${s.x} ${(s.y + d.y) / 2},
-            ${d.x} ${(s.y + d.y) / 2},
-            ${d.x} ${d.y}`;
+          V ${midY}
+          H ${d.x}
+          V ${d.y}`;
 }
 
 function truncateName(name, maxLength) {
