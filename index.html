@@ -202,6 +202,18 @@
       animation: pulse 0.5s ease-in-out 6;
     }
 
+    .node circle.path-ancestor {
+      fill: #fff8e6;
+      stroke: var(--highlight-border);
+      stroke-width: 2.5px;
+    }
+
+    .link.path-highlight {
+      stroke: var(--highlight-border);
+      stroke-width: 3px;
+      opacity: 0.85;
+    }
+
     @keyframes pulse {
       0%, 100% { transform: scale(1); }
       50% { transform: scale(1.3); }
@@ -1171,9 +1183,32 @@ function highlightNode(panelIndex, nodeId) {
 
   const { g } = tree;
 
-  // Remove any previous highlight
-  g.selectAll('.node circle').classed('highlighted', false);
+  // Remove any previous highlights
+  g.selectAll('.node circle').classed('highlighted', false).classed('path-ancestor', false);
   g.selectAll('.node text').classed('highlight', false);
+  g.selectAll('.link').classed('path-highlight', false);
+
+  // Build the set of IDs on the path from the root to the target node
+  const targetNode = tree.root.descendants().find(d => d.data.id === nodeId);
+  if (targetNode) {
+    // ancestors() returns [target, parent, ..., root]; skip virtual root (depth 0)
+    const pathNodeIds = new Set(
+      targetNode.ancestors()
+        .filter(d => d.depth > 0)
+        .map(d => d.data.id)
+    );
+
+    // Highlight path links (links whose target is in the path)
+    g.selectAll('.link')
+      .filter(d => d.target && pathNodeIds.has(d.target.data.id))
+      .classed('path-highlight', true);
+
+    // Highlight ancestor nodes (all path nodes except the target itself)
+    g.selectAll('.node')
+      .filter(d => d.data.id !== nodeId && pathNodeIds.has(d.data.id))
+      .select('circle')
+      .classed('path-ancestor', true);
+  }
 
   // Find and highlight the target node
   g.selectAll('.node')
@@ -1183,10 +1218,12 @@ function highlightNode(panelIndex, nodeId) {
       node.select('circle').classed('highlighted', true);
       node.select('text').classed('highlight', true);
 
-      // Flash effect - remove highlight after some time
+      // Remove all highlights after the duration
       setTimeout(() => {
         node.select('circle').classed('highlighted', false);
         node.select('text').classed('highlight', false);
+        g.selectAll('.node circle').classed('path-ancestor', false);
+        g.selectAll('.link').classed('path-highlight', false);
       }, HIGHLIGHT_DURATION);
     });
 }
