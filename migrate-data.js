@@ -135,6 +135,7 @@ function parseEventDetails(str) {
   // Clean up place
   if (place) {
     // Remove common prefixes/suffixes
+    // BAUT = "Bautizado" (Baptized in Spanish) - indicates place of baptism
     place = place.replace(/^BAUT\.\s*/i, '');
     place = place.replace(/\s*$/g, '');
     if (!place) place = null;
