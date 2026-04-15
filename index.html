@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Árbol Genealógico Schuster</title>
-  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js" integrity="sha512-vc58qvvBdrDR4etbxMdlTt4GBQk1qjvyORR2nrsPsFPyrs+/u5c3+1Ct6upOgdZoIl7eq6k3a1UPDSNAQi/32A==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -358,12 +358,15 @@ const NODE_VERTICAL_SPACING = 120;
 const ZOOM_SCALE_FACTOR = 1.3;
 const ZOOM_DURATION = 300;
 const ANIMATION_DURATION = 300;
-const MAX_ZOOM_SCALE = 1.5;
+const RESET_ZOOM_MAX_SCALE = 1.5;  // Max scale when auto-centering the tree
+const RESET_ZOOM_EXTRA_DURATION = 200;  // Extra animation time for reset zoom smoothness
+const TAB_SWITCH_DELAY = 50;  // Delay before centering after tab switch to ensure DOM is ready
 
 // ── Clean name: remove leading ID numbers like "I.1.1" ──
+// Matches any combination of I, V, X characters followed by optional dot-number sequences
+// This is intentionally permissive to handle various numbering formats in the data
 function cleanName(name) {
   if (!name) return '(sin nombre)';
-  // Remove patterns like "I", "I.1", "I.1.1.1" at the beginning (Roman numerals with optional dot-number sequences)
   return name.replace(/^[IVX]+(\.\d+)*\s*/i, '').trim() || name;
 }
 
@@ -458,7 +461,9 @@ function initializeD3Tree(roots, panelIndex) {
   // Initial render
   updateTree(panelIndex);
 
-  // Center the tree initially using requestAnimationFrame for reliable timing
+  // Center the tree initially using double requestAnimationFrame
+  // Double RAF ensures DOM layout is fully complete before calculating bounds
+  // (first RAF waits for render, second RAF waits for layout calculations)
   if (panelIndex === 0) {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => resetZoom());
@@ -674,8 +679,8 @@ function switchTab(idx) {
   document.getElementById('search-results').classList.remove('active');
   currentTreeIndex = idx;
   
-  // Re-center on tab switch
-  setTimeout(() => resetZoom(), 50);
+  // Re-center on tab switch after a short delay to ensure DOM is ready
+  setTimeout(() => resetZoom(), TAB_SWITCH_DELAY);
 }
 
 // ── Expand / Collapse All ──
@@ -765,7 +770,7 @@ function resetZoom() {
   const scale = Math.min(
     0.9 * fullWidth / width,
     0.9 * fullHeight / height,
-    MAX_ZOOM_SCALE
+    RESET_ZOOM_MAX_SCALE
   );
   
   const translate = [
@@ -774,7 +779,7 @@ function resetZoom() {
   ];
   
   svg.transition()
-    .duration(ZOOM_DURATION + 200)
+    .duration(ZOOM_DURATION + RESET_ZOOM_EXTRA_DURATION)
     .call(tree.zoom.transform, d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale));
 }
 
