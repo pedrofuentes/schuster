@@ -586,6 +586,11 @@ function getSpouseNames(d) {
   return names;
 }
 
+function hasSpouse(nodeData) {
+  return (nodeData.spouseRecords && nodeData.spouseRecords.length > 0) ||
+         (nodeData.spouses && nodeData.spouses.length > 0);
+}
+
 function updateTree(panelIndex) {
   const tree = trees[panelIndex];
   if (!tree) return;
@@ -599,12 +604,8 @@ function updateTree(panelIndex) {
     .nodeSize([NODE_HORIZONTAL_SPACING, NODE_VERTICAL_SPACING])
     .separation((a, b) => {
       // Give more space when nodes have spouses displayed
-      const aHasSpouse = (a.data.spouseRecords && a.data.spouseRecords.length > 0) ||
-                         (a.data.spouses && a.data.spouses.length > 0);
-      const bHasSpouse = (b.data.spouseRecords && b.data.spouseRecords.length > 0) ||
-                         (b.data.spouses && b.data.spouses.length > 0);
       const base = a.parent === b.parent ? 1 : 1.2;
-      return (aHasSpouse || bHasSpouse) ? base * 1.1 : base;
+      return (hasSpouse(a.data) || hasSpouse(b.data)) ? base * 1.1 : base;
     });
 
   // Apply layout
