@@ -195,22 +195,22 @@
     }
 
     .node circle.highlighted {
-      fill: var(--highlight);
-      stroke: var(--highlight-border);
-      stroke-width: 4px;
-      /* Animation: 6 pulses at 0.5s each = 3s total, matching HIGHLIGHT_DURATION */
+      fill: #ff9800;
+      stroke: #e65100;
+      stroke-width: 5px;
       animation: pulse 0.5s ease-in-out 6;
     }
 
     .node circle.path-ancestor {
-      fill: #ffefc0;
-      stroke: var(--highlight-border);
-      stroke-width: 2.5px;
+      fill: #ffe082;
+      stroke: #f57c00;
+      stroke-width: 3.5px;
     }
 
     .link.path-highlight {
-      stroke: var(--highlight-border);
-      stroke-width: 3px;
+      stroke: #f57c00;
+      stroke-width: 4px;
+      opacity: 0.9;
     }
 
     @keyframes pulse {
@@ -780,10 +780,24 @@ function toggleNode(event, d, panelIndex) {
     d.data._children = null;
   }
 
+  // Update URL so this person can be shared via link
+  if (d.data.id) {
+    const url = new URL(window.location.href);
+    url.searchParams.set('person', d.data.id);
+    history.pushState({ personId: d.data.id }, '', url.toString());
+  }
+
   // Recreate hierarchy and update
   const tree = trees[panelIndex];
   tree.root = d3.hierarchy(tree.root.data);
   updateTree(panelIndex);
+
+  // Highlight path to this node after the tree updates
+  if (d.data.id) {
+    requestAnimationFrame(() => {
+      highlightNode(panelIndex, d.data.id);
+    });
+  }
 }
 
 // ── Tooltip ──
@@ -1099,6 +1113,11 @@ function navigateToNode(sectionName, nodeId) {
   tree.root = d3.hierarchy(tree.root.data);
   updateTree(sectionIndex);
 
+  // Update URL so this person can be shared via link
+  const url = new URL(window.location.href);
+  url.searchParams.set('person', nodeId);
+  history.pushState({ personId: nodeId }, '', url.toString());
+
   // Switch to the correct tab and clear search
   clearSearch();
   switchTab(sectionIndex);
@@ -1216,14 +1235,6 @@ function highlightNode(panelIndex, nodeId) {
       const node = d3.select(this);
       node.select('circle').classed('highlighted', true);
       node.select('text').classed('highlight', true);
-
-      // Remove all highlights after the duration
-      setTimeout(() => {
-        node.select('circle').classed('highlighted', false);
-        node.select('text').classed('highlight', false);
-        g.selectAll('.node circle').classed('path-ancestor', false);
-        g.selectAll('.link').classed('path-highlight', false);
-      }, HIGHLIGHT_DURATION);
     });
 }
 
@@ -1235,6 +1246,37 @@ window.addEventListener('resize', () => {
     }
   });
 });
+
+// ── Deep link: navigate to ?person=<nodeId> on page load ──
+function findSectionForNode(nodeId) {
+  if (!TREE_DATA) return null;
+  function search(nodes) {
+    for (const node of nodes) {
+      if (node.id === nodeId) return true;
+      if (search(node.children || [])) return true;
+    }
+    return false;
+  }
+  for (const section of TREE_DATA) {
+    if (search(section.roots)) return section.section;
+  }
+  return null;
+}
+
+function handleDeepLink() {
+  const params = new URLSearchParams(window.location.search);
+  const personId = params.get('person');
+  if (!personId) return;
+  const sectionName = findSectionForNode(personId);
+  if (sectionName) navigateToNode(sectionName, personId);
+}
+
+// Double requestAnimationFrame ensures the initial tree render + layout are fully
+// complete before deep-link navigation attempts to calculate node positions.
+// (first RAF waits for paint, second RAF waits for layout recalculation)
+function handleDeepLinkAfterRender() {
+  requestAnimationFrame(() => requestAnimationFrame(() => handleDeepLink()));
+}
 
 // ── Load data ──
 // Try to load enhanced data first, fall back to original data.json
@@ -1256,13 +1298,17 @@ fetch('data-enhanced.json')
       // Fallback to old format
       buildUI(data);
     }
+    handleDeepLinkAfterRender();
   })
   .catch(() => {
     // Fall back to original data.json
     console.log('Falling back to data.json');
     fetch('data.json')
       .then(r => r.json())
-      .then(data => buildUI(data))
+      .then(data => {
+        buildUI(data);
+        handleDeepLinkAfterRender();
+      })
       .catch(err => {
         document.getElementById('panels').innerHTML =
           `<p style="padding:20px;color:red">Error al cargar data.json: ${err.message}</p>`;
