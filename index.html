@@ -352,11 +352,19 @@ let currentTreeIndex = 0;
 let trees = [];
 let currentZoom = null;
 
+// ── Constants ──
+const NODE_HORIZONTAL_SPACING = 180;
+const NODE_VERTICAL_SPACING = 120;
+const ZOOM_SCALE_FACTOR = 1.3;
+const ZOOM_DURATION = 300;
+const ANIMATION_DURATION = 300;
+const MAX_ZOOM_SCALE = 1.5;
+
 // ── Clean name: remove leading ID numbers like "I.1.1" ──
 function cleanName(name) {
   if (!name) return '(sin nombre)';
-  // Remove patterns like "I.1.1.1" at the beginning
-  return name.replace(/^[IVX]+(\.\d+)*\s+/i, '').trim() || name;
+  // Remove patterns like "I", "I.1", "I.1.1.1" at the beginning (Roman numerals with optional dot-number sequences)
+  return name.replace(/^[IVX]+(\.\d+)*\s*/i, '').trim() || name;
 }
 
 // ── Build UI ──
@@ -450,12 +458,12 @@ function initializeD3Tree(roots, panelIndex) {
   // Initial render
   updateTree(panelIndex);
 
-  // Center the tree initially
-  setTimeout(() => {
-    if (panelIndex === 0) {
-      resetZoom();
-    }
-  }, 100);
+  // Center the tree initially using requestAnimationFrame for reliable timing
+  if (panelIndex === 0) {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => resetZoom());
+    });
+  }
 }
 
 function convertToD3Format(node) {
@@ -488,7 +496,7 @@ function updateTree(panelIndex) {
 
   // Create tree layout - vertical orientation
   const treeLayout = d3.tree()
-    .nodeSize([180, 120])
+    .nodeSize([NODE_HORIZONTAL_SPACING, NODE_VERTICAL_SPACING])
     .separation((a, b) => (a.parent === b.parent ? 1 : 1.2));
 
   // Apply layout
@@ -514,13 +522,13 @@ function updateTree(panelIndex) {
   // Merge and transition
   link.merge(linkEnter)
     .transition()
-    .duration(300)
+    .duration(ANIMATION_DURATION)
     .attr('d', d => diagonal(d.source, d.target));
 
   // Exit links
   link.exit()
     .transition()
-    .duration(300)
+    .duration(ANIMATION_DURATION)
     .attr('d', d => {
       const o = { x: d.source.x, y: d.source.y };
       return diagonal(o, o);
@@ -558,7 +566,7 @@ function updateTree(panelIndex) {
   const nodeUpdate = nodeEnter.merge(node);
 
   nodeUpdate.transition()
-    .duration(300)
+    .duration(ANIMATION_DURATION)
     .attr('transform', d => `translate(${d.x},${d.y})`);
 
   nodeUpdate.select('circle')
@@ -571,7 +579,7 @@ function updateTree(panelIndex) {
   // Exit nodes
   node.exit()
     .transition()
-    .duration(300)
+    .duration(ANIMATION_DURATION)
     .attr('transform', d => `translate(${d.parent ? d.parent.x : 0},${d.parent ? d.parent.y : 0})`)
     .remove();
 }
@@ -625,10 +633,13 @@ function showTooltip(event, d) {
     html += `<div class="tooltip-notes">${d.data.notes.map(n => escHtml(n)).join('<br>')}</div>`;
   }
   
-  const childCount = (d.data.children ? d.data.children.length : 0) + 
-                     (d.data._children ? d.data._children.length : 0);
+  const expandedChildCount = d.data.children ? d.data.children.length : 0;
+  const collapsedChildCount = d.data._children ? d.data._children.length : 0;
+  const childCount = expandedChildCount + collapsedChildCount;
+  
   if (childCount > 0) {
-    html += `<div class="tooltip-children">${childCount} hijo${childCount !== 1 ? 's' : ''} ${d.data.children ? '(expandido)' : '(colapsado)'}</div>`;
+    const stateText = expandedChildCount > 0 ? '(expandido)' : '(colapsado)';
+    html += `<div class="tooltip-children">${childCount} hijo${childCount !== 1 ? 's' : ''} ${stateText}</div>`;
   }
   
   tooltip.innerHTML = html;
@@ -713,13 +724,13 @@ function collapseAll() {
 function zoomIn() {
   const tree = trees[currentTreeIndex];
   if (!tree) return;
-  tree.svg.transition().duration(300).call(tree.zoom.scaleBy, 1.3);
+  tree.svg.transition().duration(ZOOM_DURATION).call(tree.zoom.scaleBy, ZOOM_SCALE_FACTOR);
 }
 
 function zoomOut() {
   const tree = trees[currentTreeIndex];
   if (!tree) return;
-  tree.svg.transition().duration(300).call(tree.zoom.scaleBy, 0.7);
+  tree.svg.transition().duration(ZOOM_DURATION).call(tree.zoom.scaleBy, 1 / ZOOM_SCALE_FACTOR);
 }
 
 function resetZoom() {
@@ -729,21 +740,32 @@ function resetZoom() {
   const svg = tree.svg;
   const g = tree.g;
   
-  // Get bounds of the tree
-  const bounds = g.node().getBBox();
+  // Get bounds of the tree with error handling
+  let bounds;
+  try {
+    bounds = g.node().getBBox();
+  } catch (e) {
+    // If getBBox fails (empty tree or not rendered), use default center
+    svg.transition()
+      .duration(ZOOM_DURATION)
+      .call(tree.zoom.transform, d3.zoomIdentity);
+    return;
+  }
+  
   const parent = svg.node().parentElement;
   const fullWidth = parent.clientWidth;
   const fullHeight = parent.clientHeight;
   
-  const width = bounds.width;
-  const height = bounds.height;
+  // Guard against zero dimensions
+  const width = bounds.width || NODE_HORIZONTAL_SPACING;
+  const height = bounds.height || NODE_VERTICAL_SPACING;
   const midX = bounds.x + width / 2;
   const midY = bounds.y + height / 2;
   
   const scale = Math.min(
-    0.9 * fullWidth / (width || 1),
-    0.9 * fullHeight / (height || 1),
-    1.5
+    0.9 * fullWidth / width,
+    0.9 * fullHeight / height,
+    MAX_ZOOM_SCALE
   );
   
   const translate = [
@@ -752,7 +774,7 @@ function resetZoom() {
   ];
   
   svg.transition()
-    .duration(500)
+    .duration(ZOOM_DURATION + 200)
     .call(tree.zoom.transform, d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale));
 }
 
