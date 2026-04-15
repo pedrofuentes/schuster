@@ -187,7 +187,8 @@
       fill: var(--highlight);
       stroke: var(--highlight-border);
       stroke-width: 4px;
-      animation: pulse 0.5s ease-in-out 3;
+      /* Animation: 6 pulses at 0.5s each = 3s total, matching HIGHLIGHT_DURATION */
+      animation: pulse 0.5s ease-in-out 6;
     }
 
     @keyframes pulse {
@@ -895,6 +896,8 @@ function navigateToNode(sectionName, nodeId) {
   switchTab(sectionIndex);
 
   // After updating the tree, find the node and center on it with highlighting
+  // Double requestAnimationFrame ensures DOM layout is complete before calculating bounds
+  // (first RAF waits for render, second RAF waits for layout calculations after tree update)
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
       centerOnNode(sectionIndex, nodeId);
