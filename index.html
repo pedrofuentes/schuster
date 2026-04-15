@@ -183,6 +183,19 @@
       fill: var(--primary);
     }
 
+    .node circle.highlighted {
+      fill: var(--highlight);
+      stroke: var(--highlight-border);
+      stroke-width: 4px;
+      /* Animation: 6 pulses at 0.5s each = 3s total, matching HIGHLIGHT_DURATION */
+      animation: pulse 0.5s ease-in-out 6;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.3); }
+    }
+
     .link {
       fill: none;
       stroke: var(--connector);
@@ -361,6 +374,9 @@ const ANIMATION_DURATION = 300;
 const RESET_ZOOM_MAX_SCALE = 1.5;  // Max scale when auto-centering the tree
 const RESET_ZOOM_EXTRA_DURATION = 200;  // Extra animation time for reset zoom smoothness
 const TAB_SWITCH_DELAY = 50;  // Delay before centering after tab switch to ensure DOM is ready
+const FOCUS_ZOOM_SCALE = 1.2;  // Zoom scale when focusing on a search result node
+const CENTER_NODE_DURATION = ZOOM_DURATION + RESET_ZOOM_EXTRA_DURATION;  // Animation duration for centering on a node
+const HIGHLIGHT_DURATION = 3000;  // Duration in ms for node highlight effect
 
 // ── Clean name: remove leading ID numbers like "I.1.1" ──
 // Matches any combination of I, V, X characters followed by optional dot-number sequences
@@ -832,6 +848,7 @@ function doSearch(q) {
         ${r.node.birth_death ? `<span>${escHtml(r.node.birth_death)}</span>` : ''}
         ${r.node.spouses && r.node.spouses.length ? r.node.spouses.map(s => `<span>♥ ${escHtml(s)}</span>`).join(' ') : ''}
       </div>`;
+    item.addEventListener('click', () => navigateToNode(r.section, r.node.id));
     listEl.appendChild(item);
   });
 
@@ -856,6 +873,125 @@ function searchNodes(nodes, qLow, section, results) {
     if (haystack.includes(qLow)) results.push({ section, node });
     searchNodes(node.children || [], qLow, section, results);
   });
+}
+
+// ── Navigate to node from search results ──
+function navigateToNode(sectionName, nodeId) {
+  // Find the section index
+  const sectionIndex = TREE_DATA.findIndex(s => s.section === sectionName);
+  if (sectionIndex === -1) return;
+
+  const tree = trees[sectionIndex];
+  if (!tree) return;
+
+  // Expand the path to the target node in the data structure
+  expandPathToNode(tree.root.data, nodeId);
+
+  // Rebuild hierarchy and update tree
+  tree.root = d3.hierarchy(tree.root.data);
+  updateTree(sectionIndex);
+
+  // Switch to the correct tab and clear search
+  clearSearch();
+  switchTab(sectionIndex);
+
+  // After updating the tree, find the node and center on it with highlighting
+  // Double requestAnimationFrame ensures DOM layout is complete before calculating bounds
+  // (first RAF waits for render, second RAF waits for layout calculations after tree update)
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      centerOnNode(sectionIndex, nodeId);
+    });
+  });
+}
+
+// ── Expand path from root to target node ──
+function expandPathToNode(node, targetId) {
+  // Check if this node is the target
+  if (node.id === targetId) {
+    return true;
+  }
+
+  // Check in expanded children
+  if (node.children) {
+    for (const child of node.children) {
+      if (expandPathToNode(child, targetId)) {
+        return true;
+      }
+    }
+  }
+
+  // Check in collapsed children
+  if (node._children) {
+    for (const child of node._children) {
+      if (expandPathToNode(child, targetId)) {
+        // Expand this node
+        node.children = node._children;
+        node._children = null;
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+// ── Center view on a specific node and highlight it ──
+function centerOnNode(panelIndex, nodeId) {
+  const tree = trees[panelIndex];
+  if (!tree) return;
+
+  const { svg, g, zoom } = tree;
+
+  // Find the node in the rendered hierarchy
+  const targetNode = tree.root.descendants().find(d => d.data.id === nodeId);
+  if (!targetNode) return;
+
+  // Get SVG dimensions
+  const parent = svg.node().parentElement;
+  const fullWidth = parent.clientWidth;
+  const fullHeight = parent.clientHeight;
+
+  // Calculate transform to center on the node
+  const translate = [
+    fullWidth / 2 - FOCUS_ZOOM_SCALE * targetNode.x,
+    fullHeight / 2 - FOCUS_ZOOM_SCALE * targetNode.y
+  ];
+
+  // Animate to the node
+  svg.transition()
+    .duration(CENTER_NODE_DURATION)
+    .call(zoom.transform, d3.zoomIdentity.translate(translate[0], translate[1]).scale(FOCUS_ZOOM_SCALE));
+
+  // Highlight the target node
+  highlightNode(panelIndex, nodeId);
+}
+
+// ── Highlight a specific node temporarily ──
+function highlightNode(panelIndex, nodeId) {
+  const tree = trees[panelIndex];
+  if (!tree) return;
+
+  const { g } = tree;
+
+  // Remove any previous highlight
+  g.selectAll('.node circle').classed('highlighted', false);
+  g.selectAll('.node text').classed('highlight', false);
+
+  // Find and highlight the target node
+  g.selectAll('.node')
+    .filter(d => d.data.id === nodeId)
+    .each(function() {
+      const node = d3.select(this);
+      node.select('circle').classed('highlighted', true);
+      node.select('text').classed('highlight', true);
+
+      // Flash effect - remove highlight after some time
+      setTimeout(() => {
+        node.select('circle').classed('highlighted', false);
+        node.select('text').classed('highlight', false);
+      }, HIGHLIGHT_DURATION);
+    });
 }
 
 // ── Handle window resize ──
