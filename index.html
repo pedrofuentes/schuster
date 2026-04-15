@@ -178,6 +178,12 @@
       pointer-events: none;
     }
 
+    .node text.node-dates {
+      font-size: 9px;
+      fill: var(--text-muted);
+      font-style: italic;
+    }
+
     .node text.highlight {
       font-weight: bold;
       fill: var(--primary);
@@ -228,11 +234,18 @@
       color: var(--accent);
       margin-bottom: 4px;
     }
+    .tooltip-dates .birth-date { color: #2e7d32; }
+    .tooltip-dates .death-date { color: #5d4037; }
     .tooltip-spouse {
       color: var(--text-muted);
       margin-bottom: 4px;
     }
     .tooltip-spouse::before { content: '♥ '; color: #e74c3c; }
+    .tooltip-spouse .spouse-dates { 
+      font-size: 11px; 
+      color: var(--accent);
+      font-style: italic;
+    }
     .tooltip-notes {
       font-size: 11px;
       color: var(--text-muted);
@@ -386,6 +399,28 @@ function cleanName(name) {
   return name.replace(/^[IVX]+(\.\d+)*\s*/i, '').trim() || name;
 }
 
+// ── Shared date formatting helper ──
+// Converts ISO date (YYYY-MM-DD) to display format (DD/MM/YYYY)
+function formatISODate(dateStr) {
+  if (!dateStr) return null;
+  if (dateStr.includes('-') && dateStr.length === 10) {
+    const [y, m, d] = dateStr.split('-');
+    return `${d}/${m}/${y}`;
+  }
+  return dateStr;
+}
+
+// Format an event object (birth/death) for display
+function formatEventForDisplay(eventObj) {
+  if (!eventObj) return null;
+  let str = '';
+  if (eventObj.place) str += eventObj.place + ' ';
+  if (eventObj.date) {
+    str += formatISODate(eventObj.date);
+  }
+  return str.trim() || null;
+}
+
 // ── Build UI ──
 function buildUI(data) {
   TREE_DATA = data;
@@ -415,9 +450,18 @@ function buildUI(data) {
     panelsEl.appendChild(panel);
   });
 
-  statsEl.innerHTML = `<span>Secciones: <strong>${data.length}</strong></span>` +
-    `<span>Personas: <strong>${totalAll}</strong></span>` +
-    `<span><em>Clic en nodo para expandir/colapsar • Arrastrar para mover • Scroll para zoom</em></span>`;
+  // Build stats with data coverage info if available
+  let statsHtml = `<span>Secciones: <strong>${data.length}</strong></span>` +
+    `<span>Personas: <strong>${totalAll}</strong></span>`;
+  
+  // Add spouse count if available
+  if (window.SPOUSE_DATA) {
+    const spouseCount = Object.keys(window.SPOUSE_DATA).length;
+    statsHtml += `<span>Cónyuges: <strong>${spouseCount}</strong></span>`;
+  }
+  
+  statsHtml += `<span><em>Clic en nodo para expandir/colapsar • Arrastrar para mover • Scroll para zoom</em></span>`;
+  statsEl.innerHTML = statsHtml;
 
   // Initialize D3 trees
   data.forEach((section, idx) => {
@@ -488,11 +532,26 @@ function initializeD3Tree(roots, panelIndex) {
 }
 
 function convertToD3Format(node) {
+  // Get spouse records if available
+  const spouseRecords = [];
+  if (node.spouse_ids && window.SPOUSE_DATA) {
+    node.spouse_ids.forEach(id => {
+      const spouse = window.SPOUSE_DATA[id];
+      if (spouse) spouseRecords.push(spouse);
+    });
+  }
+
   const d3Node = {
     name: cleanName(node.name),
     originalName: node.name,
+    // Support both old and new data formats
     birth_death: node.birth_death,
+    birth: node.birth,
+    death: node.death,
+    gender: node.gender,
     spouses: node.spouses || [],
+    spouse_ids: node.spouse_ids || [],
+    spouseRecords: spouseRecords,
     notes: node.notes || [],
     id: node.id,
     _children: null,
@@ -560,6 +619,34 @@ function updateTree(panelIndex) {
   const node = g.selectAll('.node')
     .data(nodes, d => d.data.id);
 
+  // Helper to format year ranges for display
+  const formatYearRange = (d) => {
+    let birthYear = null;
+    let deathYear = null;
+    
+    // Try structured data first
+    if (d.data.birth && d.data.birth.date) {
+      birthYear = d.data.birth.date.substring(0, 4);
+    }
+    if (d.data.death && d.data.death.date) {
+      deathYear = d.data.death.date.substring(0, 4);
+    }
+    
+    // Fall back to birth_death string
+    if (!birthYear && !deathYear && d.data.birth_death) {
+      const match = d.data.birth_death.match(/(\d{4})?[^0-9]*-[^0-9]*(\d{4})?/);
+      if (match) {
+        birthYear = match[1];
+        deathYear = match[2];
+      }
+    }
+    
+    if (birthYear || deathYear) {
+      return (birthYear || '?') + '–' + (deathYear || '');
+    }
+    return null;
+  };
+
   // Enter nodes
   const nodeEnter = node.enter()
     .append('g')
@@ -579,9 +666,17 @@ function updateTree(panelIndex) {
     });
 
   nodeEnter.append('text')
+    .attr('class', 'node-name')
     .attr('dy', -15)
     .attr('text-anchor', 'middle')
     .text(d => truncateName(d.data.name, 25));
+
+  // Add dates below node (years only)
+  nodeEnter.append('text')
+    .attr('class', 'node-dates')
+    .attr('dy', 22)
+    .attr('text-anchor', 'middle')
+    .text(d => formatYearRange(d));
 
   // Update + Enter
   const nodeUpdate = nodeEnter.merge(node);
@@ -640,11 +735,39 @@ function showTooltip(event, d) {
   const tooltip = document.getElementById('tooltip');
   let html = `<div class="tooltip-name">${escHtml(d.data.name)}</div>`;
   
-  if (d.data.birth_death) {
+  // Show structured dates if available, otherwise fall back to birth_death string
+  if (d.data.birth || d.data.death) {
+    const birthStr = formatEventForDisplay(d.data.birth);
+    const deathStr = formatEventForDisplay(d.data.death);
+    let dateHtml = '<div class="tooltip-dates">';
+    if (birthStr) dateHtml += `<span class="birth-date">★ ${escHtml(birthStr)}</span>`;
+    if (birthStr && deathStr) dateHtml += ' — ';
+    if (deathStr) dateHtml += `<span class="death-date">✝ ${escHtml(deathStr)}</span>`;
+    dateHtml += '</div>';
+    html += dateHtml;
+  } else if (d.data.birth_death) {
     html += `<div class="tooltip-dates">${escHtml(d.data.birth_death)}</div>`;
   }
   
-  if (d.data.spouses && d.data.spouses.length) {
+  // Show spouse information with enhanced details
+  if (d.data.spouseRecords && d.data.spouseRecords.length > 0) {
+    d.data.spouseRecords.forEach(spouse => {
+      let spouseHtml = `<div class="tooltip-spouse">${escHtml(spouse.name)}`;
+      // Add spouse dates if available
+      const spouseBirth = formatEventForDisplay(spouse.birth);
+      const spouseDeath = formatEventForDisplay(spouse.death);
+      if (spouseBirth || spouseDeath) {
+        spouseHtml += '<span class="spouse-dates"> (';
+        if (spouseBirth) spouseHtml += escHtml(spouseBirth);
+        if (spouseBirth && spouseDeath) spouseHtml += ' — ';
+        if (spouseDeath) spouseHtml += escHtml(spouseDeath);
+        spouseHtml += ')</span>';
+      }
+      spouseHtml += '</div>';
+      html += spouseHtml;
+    });
+  } else if (d.data.spouses && d.data.spouses.length) {
+    // Fall back to simple spouse names
     d.data.spouses.forEach(s => {
       html += `<div class="tooltip-spouse">${escHtml(s)}</div>`;
     });
@@ -837,15 +960,31 @@ function doSearch(q) {
     ? `${results.length} resultado${results.length !== 1 ? 's' : ''} para "${q}"`
     : `Sin resultados para "${q}"`;
 
+  // Helper to format dates for search results using shared helpers
+  const getDisplayDates = (node) => {
+    // Try structured dates first
+    if (node.birth || node.death) {
+      let parts = [];
+      const birthStr = formatEventForDisplay(node.birth);
+      const deathStr = formatEventForDisplay(node.death);
+      if (birthStr) parts.push('★ ' + birthStr);
+      if (deathStr) parts.push('✝ ' + deathStr);
+      return parts.join(' — ');
+    }
+    // Fall back to birth_death string
+    return node.birth_death || '';
+  };
+
   listEl.innerHTML = '';
   results.slice(0, 200).forEach(r => {
     const item = document.createElement('div');
     item.className = 'result-item';
+    const displayDates = getDisplayDates(r.node);
     item.innerHTML = `
       <div class="r-section">${escHtml(r.section)}</div>
       <div class="r-name">${highlight(escHtml(cleanName(r.node.name) || ''), q)}</div>
       <div class="r-meta">
-        ${r.node.birth_death ? `<span>${escHtml(r.node.birth_death)}</span>` : ''}
+        ${displayDates ? `<span>${escHtml(displayDates)}</span>` : ''}
         ${r.node.spouses && r.node.spouses.length ? r.node.spouses.map(s => `<span>♥ ${escHtml(s)}</span>`).join(' ') : ''}
       </div>`;
     item.addEventListener('click', () => navigateToNode(r.section, r.node.id));
@@ -864,12 +1003,25 @@ function escRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
 function searchNodes(nodes, qLow, section, results) {
   nodes.forEach(node => {
-    const haystack = [
+    // Build search haystack from both old and new formats
+    const haystackParts = [
       node.name,
       node.birth_death,
       ...(node.spouses || []),
       ...(node.notes || [])
-    ].filter(Boolean).join(' ').toLowerCase();
+    ];
+    
+    // Add structured birth/death data
+    if (node.birth) {
+      if (node.birth.date) haystackParts.push(node.birth.date);
+      if (node.birth.place) haystackParts.push(node.birth.place);
+    }
+    if (node.death) {
+      if (node.death.date) haystackParts.push(node.death.date);
+      if (node.death.place) haystackParts.push(node.death.place);
+    }
+    
+    const haystack = haystackParts.filter(Boolean).join(' ').toLowerCase();
     if (haystack.includes(qLow)) results.push({ section, node });
     searchNodes(node.children || [], qLow, section, results);
   });
@@ -1004,12 +1156,36 @@ window.addEventListener('resize', () => {
 });
 
 // ── Load data ──
-fetch('data.json')
-  .then(r => r.json())
-  .then(data => buildUI(data))
-  .catch(err => {
-    document.getElementById('panels').innerHTML =
-      `<p style="padding:20px;color:red">Error al cargar data.json: ${err.message}</p>`;
+// Try to load enhanced data first, fall back to original data.json
+fetch('data-enhanced.json')
+  .then(r => {
+    if (!r.ok) throw new Error('Enhanced data not found');
+    return r.json();
+  })
+  .then(data => {
+    // Enhanced data has a different structure with metadata
+    if (data.metadata && data.sections) {
+      console.log('Loaded enhanced data v' + data.metadata.version);
+      console.log('Statistics:', data.metadata.statistics);
+      // Store individuals (spouses) globally for lookup
+      window.SPOUSE_DATA = {};
+      (data.individuals || []).forEach(s => { window.SPOUSE_DATA[s.id] = s; });
+      buildUI(data.sections);
+    } else {
+      // Fallback to old format
+      buildUI(data);
+    }
+  })
+  .catch(() => {
+    // Fall back to original data.json
+    console.log('Falling back to data.json');
+    fetch('data.json')
+      .then(r => r.json())
+      .then(data => buildUI(data))
+      .catch(err => {
+        document.getElementById('panels').innerHTML =
+          `<p style="padding:20px;color:red">Error al cargar data.json: ${err.message}</p>`;
+      });
   });
 </script>
 </body>
